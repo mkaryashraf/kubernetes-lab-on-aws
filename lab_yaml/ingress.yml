@@ -1,0 +1,40 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: voting-ingress
+  annotations:
+    cert-manager.io/cluster-issuer: self-signed
+    # aws config
+    # alb.ingress.kubernetes.io/scheme: internet-facing
+    # alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80}]'
+    # alb.ingress.kubernetes.io/target-type: instance
+spec:
+  # remove if working on aws
+  ingressClassName: nginx
+  #ingressClassName: alb
+  tls:
+  - hosts:
+    - vote.makary.local
+    - result.makary.local
+    secretName: voting-tls
+  rules:
+  - host: vote.makary.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: vote
+            port:
+              number: 8080
+  - host: result.makary.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: result
+            port:
+              number: 8081

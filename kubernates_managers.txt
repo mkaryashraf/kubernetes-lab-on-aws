@@ -1,0 +1,22 @@
+
+Metallb:
+kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.15.3/config/manifests/metallb-native.yaml
+
+
+
+Calico:
+kubectl apply -f https://docs.projectcalico.org/manifests/calico.yaml
+
+
+nginx ingress controller:
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/cloud/deploy.yaml
+
+
+cert manager:
+kubectl apply -f https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml
+
+
+server metrics:
+kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+
+

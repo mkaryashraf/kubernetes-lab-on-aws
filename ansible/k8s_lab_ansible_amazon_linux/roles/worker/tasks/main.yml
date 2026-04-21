@@ -1,0 +1,81 @@
+- name: Check if node is already joined
+  stat:
+    path: /etc/kubernetes/kubelet.conf
+  register: kubelet_conf
+
+- name: Check if node is actually ready in cluster
+  command: kubectl get node {{ inventory_hostname }} --no-headers
+  delegate_to: cp
+  changed_when: false
+  failed_when: false
+  register: node_status
+
+- name: Reset kubeadm if kubelet.conf exists but node is not ready
+  command: kubeadm reset -f
+  when:
+    - kubelet_conf.stat.exists
+    - "'NotReady' in node_status.stdout or node_status.rc != 0"
+
+- name: Clean up kubernetes files after reset
+  file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/kubernetes
+    - /var/lib/kubelet
+    - /root/.kube        # ← fixed from $HOME/.kube
+  when:
+    - kubelet_conf.stat.exists
+    - "'NotReady' in node_status.stdout or node_status.rc != 0"
+
+- name: Get EC2 instance availability zone
+  uri:
+    url: http://169.254.169.254/latest/meta-data/placement/availability-zone
+    return_content: yes
+  register: az
+  when: not kubelet_conf.stat.exists or node_status.rc != 0   # ← only when needed
+
+- name: Get EC2 instance ID
+  uri:
+    url: http://169.254.169.254/latest/meta-data/instance-id
+    return_content: yes
+  register: instance_id
+  when: not kubelet_conf.stat.exists or node_status.rc != 0   # ← only when needed
+
+
+- name: Get node primary IP
+  shell: hostname -I | awk '{print $1}'
+  register: node_ip
+  changed_when: false
+
+- name: Create kubernetes config directory
+  file:
+    path: /etc/kubernetes
+    state: directory
+    mode: '0755'
+  when: not kubelet_conf.stat.exists or node_status.rc != 0
+
+- name: Create kubeadm join config
+  copy:
+    dest: /etc/kubernetes/join-config.yaml
+    content: |
+      apiVersion: kubeadm.k8s.io/v1beta3
+      kind: JoinConfiguration
+      discovery:
+        bootstrapToken:
+          token: "{{ hostvars['cp']['join_token'] }}"
+          apiServerEndpoint: "{{ hostvars['cp']['join_endpoint'] }}"
+          caCertHashes:
+            - "{{ hostvars['cp']['join_ca_hash'] }}"
+      nodeRegistration:
+        kubeletExtraArgs:
+          cloud-provider: external
+          provider-id: "aws:///{{ az.content }}/{{ instance_id.content }}"
+          node-ip: "{{ node_ip.stdout }}"
+  when: not kubelet_conf.stat.exists or node_status.rc != 0
+
+- name: Join worker node to cluster
+  command: kubeadm join --config /etc/kubernetes/join-config.yaml --ignore-preflight-errors=all
+  args:
+    creates: /etc/kubernetes/kubelet.conf   # ← extra safety, skip if already exists
+  when: not kubelet_conf.stat.exists or node_status.rc != 0

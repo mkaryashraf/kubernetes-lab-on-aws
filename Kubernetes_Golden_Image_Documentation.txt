@@ -1,0 +1,165 @@
+Kubernetes Lab - Golden Image Documentation
+
+Generated on: 2026-02-23 09:28:41
+
+------------------------------------------------------------------------
+
+Overview
+
+This document describes the complete setup of the Kubernetes “Golden
+Image” VM template. This template is used to clone control plane and
+worker nodes in a production-style lab environment using VirtualBox on
+Windows.
+
+The golden image contains ONLY base system configuration and Kubernetes
+prerequisites. It does NOT contain cluster initialization or CNI
+installation.
+
+------------------------------------------------------------------------
+
+Host Environment
+
+-   Host OS: Windows
+-   Hypervisor: VirtualBox
+-   Networking:
+    -   Adapter 1: NAT (Internet access)
+    -   Adapter 2: Host-only (vboxnet0 – 192.168.56.0/24, DHCP enabled)
+
+------------------------------------------------------------------------
+
+Ubuntu Server Installation
+
+-   OS: Ubuntu Server 22.04 LTS
+-   Storage: Use entire disk (default partitioning)
+-   Proxy: Not configured
+-   OpenSSH Server: Installed during setup
+-   User created for SSH access
+
+------------------------------------------------------------------------
+
+Network Configuration (Persistent)
+
+Cloud-init generated file was NOT modified.
+
+Created custom netplan file:
+
+File: /etc/netplan/01-k8s-network.yaml
+
+Configuration:
+
+network: version: 2 ethernets: enp0s3: dhcp4: true enp0s8: dhcp4: true
+
+Applied with: sudo netplan apply
+
+------------------------------------------------------------------------
+
+System Preparation
+
+1.  Disable Swap
+
+sudo swapoff -a sudo sed -i ‘/ swap / s/^/#/’ /etc/fstab
+
+2.  Enable Required Kernel Modules
+
+sudo modprobe br_netfilter echo “br_netfilter” | sudo tee
+/etc/modules-load.d/k8s.conf
+
+3.  Configure sysctl for Kubernetes Networking
+
+echo “net.bridge.bridge-nf-call-iptables=1” | sudo tee -a
+/etc/sysctl.d/k8s.conf echo “net.ipv4.ip_forward=1” | sudo tee -a
+/etc/sysctl.d/k8s.conf sudo sysctl –system
+
+------------------------------------------------------------------------
+
+Container Runtime Installation
+
+Installed containerd:
+
+sudo apt update sudo apt install -y containerd
+
+Generated default configuration:
+
+sudo mkdir -p /etc/containerd containerd config default | sudo tee
+/etc/containerd/config.toml
+
+Restarted and enabled service:
+
+sudo systemctl restart containerd sudo systemctl enable containerd
+
+------------------------------------------------------------------------
+
+Kubernetes Repository Configuration
+
+Installed prerequisites:
+
+sudo apt install -y apt-transport-https ca-certificates curl gpg
+
+Added official Kubernetes repository (pkgs.k8s.io):
+
+sudo mkdir -p /etc/apt/keyrings curl -fsSL
+https://pkgs.k8s.io/core:/stable:/v1.29/deb/Release.key | sudo gpg
+–dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+
+echo “deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg]
+https://pkgs.k8s.io/core:/stable:/v1.29/deb/ /” | sudo tee
+/etc/apt/sources.list.d/kubernetes.list
+
+sudo apt update
+
+------------------------------------------------------------------------
+
+Kubernetes Components Installation (Pinned Versions)
+
+Installed specific versions:
+
+sudo apt install -y kubeadm=1.29.2-1.1 kubelet=1.29.2-1.1
+kubectl=1.29.2-1.1
+
+Prevented automatic upgrades:
+
+sudo apt-mark hold kubeadm kubelet kubectl
+
+Verified versions:
+
+kubeadm version kubectl version –client kubelet –version
+
+------------------------------------------------------------------------
+
+Important: What Is NOT Installed on the Golden Image
+
+The following were intentionally NOT performed on the template:
+
+-   kubeadm init
+-   kubeadm join
+-   Calico (CNI) installation
+-   Any cluster-specific configuration
+-   Static IP assignment
+
+------------------------------------------------------------------------
+
+Cloning Instructions
+
+Before cloning: - VM must be powered off
+
+Clone settings: - Clone type: Full Clone - Snapshot: Current machine
+state - MAC Address Policy: Generate new MAC addresses for all
+adapters - Do NOT keep hardware UUIDs - Do NOT keep disk names
+
+After cloning: - Set unique hostname (cp-1, w-1, w-2, etc.) - Verify
+unique IP on enp0s8 - Renew DHCP if needed: sudo dhclient -r enp0s8 sudo
+dhclient enp0s8
+
+------------------------------------------------------------------------
+
+Golden Image Status
+
+The VM is fully prepared as a Kubernetes-ready base node. It is safe to
+clone for: - Control plane nodes - Worker nodes
+
+Cluster initialization and CNI installation must be performed only after
+cloning.
+
+------------------------------------------------------------------------
+
+End of Document

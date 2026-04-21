@@ -1,0 +1,33 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: good-pod
+  namespace: secure-app
+spec:
+  securityContext:
+    seccompProfile:
+      type: RuntimeDefault
+  containers:
+  - name: good
+    image: nginx
+    securityContext:
+      runAsNonRoot: true        # ✅
+      runAsUser: 1000           # ✅
+      allowPrivilegeEscalation: false  # ✅
+      readOnlyRootFilesystem: true     # ✅
+      capabilities:
+        drop: ["ALL"]           # ✅
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: privileged-test
+  namespace: secure-app
+spec:
+  containers:
+  - name: test
+    image: nginx
+    securityContext:
+      privileged: true
+      # or
+      #runAsRoot: true

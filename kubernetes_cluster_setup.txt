@@ -1,0 +1,129 @@
+KUBERNETES CLUSTER SETUP GUIDE (KUBEADM + CONTAINERD)
+
+Lab Architecture
+
+-   1 Control Plane (cp-1)
+-   1+ Worker Nodes (w-1, w-2)
+-   Ubuntu 22.04
+-   containerd runtime
+-   Calico CNI
+-   Static IP via Netplan
+
+Example IP Plan
+
+cp-1 : 192.168.56.104 w-1 : 192.168.56.105 w-2 : 192.168.56.106
+
+PHASE 0 — CLEAN RESET (If Rebuilding)
+
+Run on ALL nodes:
+
+sudo kubeadm reset -f sudo systemctl stop kubelet sudo systemctl stop
+containerd sudo rm -rf /etc/kubernetes sudo rm -rf /var/lib/etcd sudo rm
+-rf /var/lib/kubelet sudo rm -rf /etc/cni/net.d sudo systemctl restart
+containerd
+
+Reboot nodes after reset.
+
+PHASE 1 — CONFIGURE STATIC NETWORKING
+
+Check interfaces: ip a
+
+Edit netplan: sudo nano /etc/netplan/00-installer-config.yaml
+
+Example configuration:
+
+network: version: 2 ethernets: enp0s8: dhcp4: no addresses: -
+192.168.56.104/24 gateway4: 192.168.56.1 nameservers: addresses:
+[8.8.8.8]
+
+Apply changes: sudo netplan apply
+
+Verify IP does NOT change after reboot.
+
+PHASE 2 — INSTALL CONTAINERD
+
+sudo apt update sudo apt install -y containerd
+
+Generate config: sudo mkdir -p /etc/containerd sudo containerd config
+default | sudo tee /etc/containerd/config.toml
+
+IMPORTANT: Fix systemd cgroups
+
+Edit: sudo nano /etc/containerd/config.toml
+
+Change: SystemdCgroup = false To: SystemdCgroup = true
+
+Or use: sudo sed -i ‘s/SystemdCgroup = false/SystemdCgroup = true/’
+/etc/containerd/config.toml
+
+Restart: sudo systemctl restart containerd sudo systemctl enable
+containerd
+
+PHASE 3 — DISABLE SWAP
+
+sudo swapoff -a sudo sed -i ‘/ swap / s/^/#/’ /etc/fstab
+
+PHASE 4 — INSTALL KUBERNETES COMPONENTS
+
+sudo apt install -y apt-transport-https ca-certificates curl sudo curl
+-fsSL https://pkgs.k8s.io/core:/stable:/v1.29/deb/Release.key | sudo gpg
+–dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+
+echo ‘deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg]
+https://pkgs.k8s.io/core:/stable:/v1.29/deb/ /’ | sudo tee
+/etc/apt/sources.list.d/kubernetes.list
+
+sudo apt update sudo apt install -y kubelet kubeadm kubectl sudo
+apt-mark hold kubelet kubeadm kubectl
+
+PHASE 5 — INITIALIZE CONTROL PLANE (ON CP-1 ONLY)
+
+sudo kubeadm init –apiserver-advertise-address=192.168.56.104
+–pod-network-cidr=192.168.0.0/16
+
+Configure kubectl: mkdir -p $HOME/.kube sudo cp
+/etc/kubernetes/admin.conf $HOME/.kube/config sudo chown (id−u):(id -g)
+$HOME/.kube/config
+
+Test: kubectl get nodes
+
+PHASE 6 — INSTALL CALICO CNI
+
+kubectl apply -f
+https://raw.githubusercontent.com/projectcalico/calico/v3.27.2/manifests/calico.yaml
+
+Verify: kubectl get pods -n kube-system -w
+
+Nodes should become Ready.
+
+PHASE 7 — JOIN WORKER NODES
+
+On control plane: kubeadm token create –print-join-command
+
+Run the printed command on each worker: sudo kubeadm join :6443 –token
+–discovery-token-ca-cert-hash sha256:
+
+
+PHASE 9 — VERIFY CLUSTER HEALTH
+
+kubectl get nodes kubectl get pods -A
+
+Expected: - All nodes Ready - CoreDNS Running - Calico Running - No pods
+Pending
+
+COMMON PROBLEMS
+
+1)  CoreDNS Pending: Cause: No CNI installed. Fix: Check Calico pods.
+
+2)  Nodes NotReady: journalctl -u kubelet -f Often caused by CNI not
+    initialized.
+
+3)  IP changes after reboot: Ensure DHCP disabled in netplan.
+
+4)  containerd permission denied: Ensure SystemdCgroup = true
+
+SAFE SHUTDOWN
+
+kubectl get nodes sudo shutdown now
+
+Cluster state will persist if static IPs remain unchanged.

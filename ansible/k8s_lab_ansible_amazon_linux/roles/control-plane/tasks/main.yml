@@ -1,0 +1,131 @@
+---
+- name: Check if control plane was partially created
+  stat:
+    path: /etc/kubernetes/manifests/kube-apiserver.yaml
+  register: kubeadm_partial
+
+- name: Reset kubeadm if partial init exists
+  command: kubeadm reset -f
+  when: kubeadm_partial.stat.exists
+
+- name: Cleanup Kubernetes state if reset
+  file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/kubernetes
+    - /var/lib/kubelet
+    - /etc/cni
+    - /var/lib/cni
+  when: kubeadm_partial.stat.exists
+
+
+- name: Get EC2 instance availability zone
+  uri:
+    url: http://169.254.169.254/latest/meta-data/placement/availability-zone
+    return_content: yes
+  register: az
+
+- name: Get EC2 instance ID
+  uri:
+    url: http://169.254.169.254/latest/meta-data/instance-id
+    return_content: yes
+  register: instance_id
+
+- name: Get node primary IP
+  shell: hostname -I | awk '{print $1}'
+  register: node_ip
+  changed_when: false
+
+
+- name: Create kubernetes config directory
+  file:
+    path: /etc/kubernetes
+    state: directory
+    mode: '0755'
+
+- name: Create kubeadm config file
+  copy:
+    dest: /etc/kubernetes/kubeadm-config.yaml
+    content: |
+      apiVersion: kubeadm.k8s.io/v1beta3
+      kind: ClusterConfiguration
+      kubernetesVersion: "1.29.15"
+      clusterName: "k8s-lab-cluster"
+
+      networking:
+        podSubnet: "192.168.0.0/16"
+
+      apiServer:
+        extraArgs:
+          cloud-provider: external
+
+      controllerManager:
+        extraArgs:
+          cloud-provider: external
+
+      ---
+      apiVersion: kubeadm.k8s.io/v1beta3
+      kind: InitConfiguration
+      nodeRegistration:
+        kubeletExtraArgs:
+          cloud-provider: external
+          provider-id: "aws:///{{ az.content }}/{{ instance_id.content }}"
+          node-ip: "{{ node_ip.stdout }}"
+
+- name: Run kubeadm init
+  command: kubeadm init --config /etc/kubernetes/kubeadm-config.yaml
+  args:
+    creates: /etc/kubernetes/admin.conf  # Skips if cluster already initialized
+  register: kubeadm_init
+
+
+- name: Create .kube directory
+  file:
+    path: /root/.kube
+    state: directory
+    mode: '0700'
+
+- name: Copy kubeconfig for root
+  copy:
+    src: /etc/kubernetes/admin.conf
+    dest: /root/.kube/config
+    remote_src: yes
+    mode: '0600'
+
+- name: Generate worker join command
+  shell: kubeadm token create --print-join-command
+  register: join_command
+  changed_when: false
+
+- name: Set join command fact
+  set_fact:
+    worker_join_command: "{{ join_command.stdout }}"
+
+- name: Set join facts
+  set_fact:
+    worker_join_command: "{{ join_command.stdout }}"
+    join_token: "{{ join_command.stdout.split('--token ')[1].split(' ')[0] }}"
+    join_endpoint: "{{ join_command.stdout.split('kubeadm join ')[1].split(' ')[0] }}"
+    join_ca_hash: "{{ join_command.stdout.split('--discovery-token-ca-cert-hash ')[1].split(' ')[0] }}"
+
+- name: Download and install Helm
+  ansible.builtin.unarchive:
+    src: "https://get.helm.sh/helm-v3.13.1-linux-amd64.tar.gz"
+    dest: /usr/bin
+    remote_src: yes
+    extra_opts: "--strip-components=1"
+    creates: /usr/bin/helm
+  register: helm_install
+
+- name: Verify Helm installation using absolute path
+  ansible.builtin.command: helm version
+  register: helm_check
+  changed_when: false
+
+- name: Show Helm version
+  ansible.builtin.debug:
+    msg: "{{ helm_check.stdout }}"
+
+- name: Apply Calico CNI
+  command: kubectl apply -f https://docs.projectcalico.org/manifests/calico.yaml

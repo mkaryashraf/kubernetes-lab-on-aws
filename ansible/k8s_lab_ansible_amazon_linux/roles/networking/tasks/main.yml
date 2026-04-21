@@ -1,0 +1,71 @@
+---
+- name: Add AWS Cloud Controller Manager Helm repo
+  command: helm repo add aws-cloud-controller-manager https://kubernetes.github.io/cloud-provider-aws
+  changed_when: false
+
+- name: Add EBS CSI Driver Helm repo
+  command: helm repo add aws-ebs-csi-driver https://kubernetes-sigs.github.io/aws-ebs-csi-driver
+  changed_when: false
+
+- name: Add EKS Helm repo
+  command: helm repo add eks https://aws.github.io/eks-charts
+  changed_when: false
+
+- name: Update Helm repos
+  command: helm repo update
+  changed_when: false
+
+- name: Install AWS Cloud Controller Manager
+  command: >
+    helm upgrade --install aws-cloud-controller-manager
+    aws-cloud-controller-manager/aws-cloud-controller-manager
+    --namespace kube-system
+    --set args[0]="--v=2"
+    --set args[1]="--cloud-provider=aws"
+    --set args[2]="--cluster-name={{ cluster_name }}"
+    --set args[3]="--configure-cloud-routes=false"
+    --wait
+  changed_when: false
+
+- name: Install AWS Load Balancer Controller
+  command: >
+    helm upgrade --install aws-load-balancer-controller
+    eks/aws-load-balancer-controller
+    --namespace kube-system
+    --set clusterName={{ cluster_name }}
+    --set region={{ aws_region }}
+    --set vpcId={{ vpc_id }}
+    --set serviceAccount.create=true
+    --set serviceAccount.name=aws-load-balancer-controller
+    --wait
+  changed_when: false
+
+- name: Install EBS CSI Driver
+  command: >
+    helm upgrade --install aws-ebs-csi-driver
+    aws-ebs-csi-driver/aws-ebs-csi-driver
+    --namespace kube-system
+    --set controller.serviceAccount.create=true
+    --set controller.serviceAccount.name=ebs-csi-controller-sa
+  changed_when: false
+
+- name: Create EBS StorageClass
+  copy:
+    dest: /tmp/ebs-storageclass.yaml
+    content: |
+      apiVersion: storage.k8s.io/v1
+      kind: StorageClass
+      metadata:
+        name: {{ storage_class_name }}
+        annotations:
+          storageclass.kubernetes.io/is-default-class: "true"
+      provisioner: ebs.csi.aws.com
+      volumeBindingMode: WaitForFirstConsumer
+      parameters:
+        type: gp3
+        encrypted: "true"
+      reclaimPolicy: Retain
+
+- name: Apply EBS StorageClass
+  command: kubectl apply -f /tmp/ebs-storageclass.yaml
+  changed_when: false

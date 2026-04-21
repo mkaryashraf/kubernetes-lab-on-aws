@@ -1,0 +1,36 @@
+---
+- name: Prepare all nodes
+  hosts: kube_nodes
+  become: yes
+  roles:
+    - common
+  vars_files:
+    - common.yml
+
+- name: Setup Control Plane
+  hosts: cp
+  become: yes
+  roles:
+    - control-plane
+  vars_files:
+    - common.yml
+
+- name: Join Worker Nodes
+  hosts: workers
+  become: yes
+  roles:
+    - worker
+  vars_files:
+    - common.yml
+
+- name: apply workloads
+  hosts: cp
+  become: yes
+  roles:
+    - networking
+    - ingress-certmanager
+    - metrics-server
+    - metallb
+    - monitoring
+  vars_files:
+    - common.yml

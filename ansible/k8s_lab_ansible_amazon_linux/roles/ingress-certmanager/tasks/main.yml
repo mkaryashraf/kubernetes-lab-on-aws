@@ -1,0 +1,14 @@
+---
+#disbale in aws
+#- name: Install Nginx Ingress Controller
+#  command: kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.8.1/deploy/static/provider/cloud/deploy.yaml
+
+#- name: Install cert-manager CRDs
+#  command: kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.15.3/cert-manager.crds.yaml
+
+- name: Create cert-manager namespace
+  command: kubectl create namespace cert-manager
+  ignore_errors: yes
+
+- name: Install cert-manager
+  command: kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.15.3/cert-manager.yaml

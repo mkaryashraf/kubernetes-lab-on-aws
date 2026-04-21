@@ -1,0 +1,134 @@
+---
+- name: create work directory
+  file:
+    path: /home/ec2-user/yamlfiles
+    state: directory
+    mode: '0700'
+
+- name: Add prometheus community Helm repo
+  command: helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+  changed_when: false
+
+- name: Update Helm repos
+  command: helm repo update
+  changed_when: false
+
+- name: Create monitoring namespace
+  command: kubectl create namespace {{ monitoring_namespace }}
+  changed_when: false
+  ignore_errors: yes
+
+- name: Create Grafana admin secret
+  command: >
+    kubectl create secret generic grafana-admin-secret
+    --from-literal=admin-user=admin
+    --from-literal=admin-password={{ grafana_admin_password }}
+    -n {{ monitoring_namespace }}
+  changed_when: false
+  ignore_errors: yes
+
+- name: Create prometheus values file
+  copy:
+    dest: /home/ec2-user/yamlfiles/prometheus-values.yaml
+    content: |
+      prometheus:
+        prometheusSpec:
+          retention: 15d
+          storageSpec:
+            volumeClaimTemplate:
+              spec:
+                storageClassName: {{ storage_class_name }}
+                accessModes: ["ReadWriteOnce"]
+                resources:
+                  requests:
+                    storage: 10Gi
+
+      grafana:
+        admin:
+          existingSecret: grafana-admin-secret
+          userKey: admin-user
+          passwordKey: admin-password
+        persistence:
+          enabled: true
+          storageClassName: {{ storage_class_name }}
+          size: 5Gi
+        service:
+          type: NodePort
+
+      alertmanager:
+        alertmanagerSpec:
+          storage:
+            volumeClaimTemplate:
+              spec:
+                storageClassName: {{ storage_class_name }}
+                accessModes: ["ReadWriteOnce"]
+                resources:
+                  requests:
+                    storage: 2Gi
+
+      nodeExporter:
+        enabled: true
+
+      kubeStateMetrics:
+        enabled: true
+
+- name: Install kube-prometheus-stack
+  command: >
+    helm upgrade --install kube-prometheus-stack
+    prometheus-community/kube-prometheus-stack
+    --namespace {{ monitoring_namespace }}
+    --values /home/ec2-user/yamlfiles/prometheus-values.yaml
+  changed_when: false
+
+- name: Wait for Grafana to be ready
+  command: >
+    kubectl rollout status deployment/kube-prometheus-stack-grafana
+    -n {{ monitoring_namespace }}
+    --timeout=180s
+  changed_when: false
+
+- name: Wait for Prometheus to be ready
+  command: >
+    kubectl rollout status statefulset/prometheus-kube-prometheus-stack-prometheus
+    -n {{ monitoring_namespace }}
+    --timeout=180s
+  changed_when: false
+
+- name: Create Grafana ingress
+  copy:
+    dest: /home/ec2-user/yamlfiles/grafana-ingress.yaml
+    content: |
+      apiVersion: networking.k8s.io/v1
+      kind: Ingress
+      metadata:
+        name: grafana-ingress
+        namespace: {{ monitoring_namespace }}
+        annotations:
+          alb.ingress.kubernetes.io/scheme: internet-facing
+          alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80}]'
+          alb.ingress.kubernetes.io/target-type: instance
+          alb.ingress.kubernetes.io/group.name: monitoring-group
+      spec:
+        ingressClassName: alb
+        rules:
+        - host: grafana.makary.test
+          http:
+            paths:
+            - path: /
+              pathType: Prefix
+              backend:
+                service:
+                  name: kube-prometheus-stack-grafana
+                  port:
+                    number: 80
+
+- name: Apply Grafana ingress
+  command: kubectl apply -f /home/ec2-user/yamlfiles/grafana-ingress.yaml
+  changed_when: false
+
+- name: clone demo-docker-voting repo
+  git:
+    repo: https://github.com/dockersamples/example-voting-app.git
+    dest: /home/ec2-user/yamlfiles/demo-vote-docker
+    clone: yes
+    update: yes
