@@ -3,7 +3,7 @@ provider "aws" {
 }
 
 resource "aws_instance" "cp" {
-  ami                  = data.aws_ami.amazon_linux_2.id
+  ami                  = data.aws_ami.amazon_linux_2023.id
   instance_type        = "t3.medium"
   key_name             = var.key_name
   security_groups      = [aws_security_group.allow_all.name]
@@ -17,7 +17,7 @@ resource "aws_instance" "cp" {
 
 
 resource "aws_instance" "w_1" {
-  ami                  = data.aws_ami.amazon_linux_2.id
+  ami                  = data.aws_ami.amazon_linux_2023.id
   instance_type        = "t3.medium"
   key_name             = var.key_name
   security_groups      = [aws_security_group.allow_all.name]
@@ -31,7 +31,7 @@ resource "aws_instance" "w_1" {
 
 
 resource "aws_instance" "w_2" {
-  ami                  = data.aws_ami.amazon_linux_2.id
+  ami                  = data.aws_ami.amazon_linux_2023.id
   instance_type        = "t3.medium"
   key_name             = var.key_name
   security_groups      = [aws_security_group.allow_all.name]

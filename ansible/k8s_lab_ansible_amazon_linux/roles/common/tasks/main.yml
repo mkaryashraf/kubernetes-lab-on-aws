@@ -112,16 +112,16 @@
     content: |
       [kubernetes]
       name=Kubernetes
-      baseurl=https://pkgs.k8s.io/core:/stable:/v1.29/rpm/
+      baseurl=https://pkgs.k8s.io/core:/stable:/v{{ kubernetes_minor_version }}/rpm/
       enabled=1
       gpgcheck=1
-      gpgkey=https://pkgs.k8s.io/core:/stable:/v1.29/rpm/repodata/repomd.xml.key
+      gpgkey=https://pkgs.k8s.io/core:/stable:/v{{ kubernetes_minor_version }}/rpm/repodata/repomd.xml.key
     mode: '0644'
 
 - name: Import Kubernetes GPG key
   rpm_key:
     state: present
-    key: https://pkgs.k8s.io/core:/stable:/v1.29/rpm/repodata/repomd.xml.key
+    key: https://pkgs.k8s.io/core:/stable:/v{{ kubernetes_minor_version }}/rpm/repodata/repomd.xml.key
 
 # 5️⃣ Update all packages after repo is added
 - name: Update all system packages (after repo)
@@ -133,9 +133,9 @@
 - name: Install Kubernetes packages
   yum:
     name:
-      - kubelet-1.29.15-150500.1.1
-      - kubeadm-1.29.15-150500.1.1
-      - kubectl-1.29.15-150500.1.1
+      - kubelet-{{ kubernetes_version }}
+      - kubeadm-{{ kubernetes_version }}
+      - kubectl-{{ kubernetes_version }}
     state: present
 
 - name: Install yum versionlock plugin
