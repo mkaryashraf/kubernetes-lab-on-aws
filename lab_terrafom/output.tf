@@ -13,7 +13,3 @@ output "wp2_ip_addr" {
 output "default_vpc_id" {
   value = data.aws_vpc.default_vpc.id
 }
-
-output "control_plane_availability_zone" {
-  value = aws_instance.cp.availability_zone
-}
