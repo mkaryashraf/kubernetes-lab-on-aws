@@ -19,17 +19,37 @@
     - /var/lib/cni
   when: kubeadm_partial.stat.exists
 
+- name: Get IMDSv2 token
+  uri:
+    url: http://169.254.169.254/latest/api/token
+    method: PUT
+    headers:
+      X-aws-ec2-metadata-token-ttl-seconds: 21600
+    return_content: yes
+    status_code: 200
+  register: imds_token
+
+- name: Fail if token not received
+  fail:
+    msg: "IMDSv2 token request failed"
+  when: imds_token.content is not defined or imds_token.content == ""
 
 - name: Get EC2 instance availability zone
   uri:
     url: http://169.254.169.254/latest/meta-data/placement/availability-zone
+    headers:
+      X-aws-ec2-metadata-token: "{{ imds_token.content }}"
     return_content: yes
+    status_code: 200
   register: az
 
 - name: Get EC2 instance ID
   uri:
     url: http://169.254.169.254/latest/meta-data/instance-id
+    headers:
+      X-aws-ec2-metadata-token: "{{ imds_token.content }}"
     return_content: yes
+    status_code: 200
   register: instance_id
 
 - name: Get node primary IP
@@ -48,30 +68,22 @@
   copy:
     dest: /etc/kubernetes/kubeadm-config.yaml
     content: |
-      apiVersion: kubeadm.k8s.io/v1beta3
+      apiVersion: kubeadm.k8s.io/v1beta4
       kind: ClusterConfiguration
       kubernetesVersion: {{ kubernetes_version }}
       clusterName: "k8s-lab-cluster"
 
       networking:
         podSubnet: "192.168.0.0/16"
-
-      apiServer:
-        extraArgs:
-          cloud-provider: external
-
-      controllerManager:
-        extraArgs:
-          cloud-provider: external
-
       ---
-      apiVersion: kubeadm.k8s.io/v1beta3
+      apiVersion: kubeadm.k8s.io/v1beta4
       kind: InitConfiguration
       nodeRegistration:
         kubeletExtraArgs:
-          cloud-provider: external
-          provider-id: "aws:///{{ az.content }}/{{ instance_id.content }}"
-          node-ip: "{{ node_ip.stdout }}"
+        - name: provider-id 
+          value: "aws:///{{ az.content }}/{{ instance_id.content }}"
+        - name: node-ip
+          value: "{{ node_ip.stdout }}"
 
 - name: Run kubeadm init
   command: kubeadm init --config /etc/kubernetes/kubeadm-config.yaml
@@ -117,6 +129,7 @@
     extra_opts: "--strip-components=1"
     creates: /usr/bin/helm
   register: helm_install
+  become: yes
 
 - name: Verify Helm installation using absolute path
   ansible.builtin.command: helm version
@@ -128,4 +141,4 @@
     msg: "{{ helm_check.stdout }}"
 
 - name: Apply Calico CNI
-  command: kubectl apply -f https://docs.projectcalico.org/manifests/calico.yaml
+  command: kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.28.0/manifests/calico.yaml

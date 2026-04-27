@@ -28,17 +28,38 @@
     - kubelet_conf.stat.exists
     - "'NotReady' in node_status.stdout or node_status.rc != 0"
 
+- name: Get IMDSv2 token
+  uri:
+    url: http://169.254.169.254/latest/api/token
+    method: PUT
+    headers:
+      X-aws-ec2-metadata-token-ttl-seconds: 21600
+    return_content: yes
+    status_code: 200
+  register: imds_token
+
+- name: Fail if token not received
+  fail:
+    msg: "IMDSv2 token request failed"
+  when: imds_token.content is not defined or imds_token.content == ""
+
 - name: Get EC2 instance availability zone
   uri:
     url: http://169.254.169.254/latest/meta-data/placement/availability-zone
+    headers:
+      X-aws-ec2-metadata-token: "{{ imds_token.content }}"
     return_content: yes
+    status_code: 200
   register: az
   when: not kubelet_conf.stat.exists or node_status.rc != 0   # ← only when needed
 
 - name: Get EC2 instance ID
   uri:
     url: http://169.254.169.254/latest/meta-data/instance-id
+    headers:
+      X-aws-ec2-metadata-token: "{{ imds_token.content }}"
     return_content: yes
+    status_code: 200
   register: instance_id
   when: not kubelet_conf.stat.exists or node_status.rc != 0   # ← only when needed
 
@@ -59,7 +80,7 @@
   copy:
     dest: /etc/kubernetes/join-config.yaml
     content: |
-      apiVersion: kubeadm.k8s.io/v1beta3
+      apiVersion: kubeadm.k8s.io/v1beta4
       kind: JoinConfiguration
       discovery:
         bootstrapToken:
@@ -69,9 +90,10 @@
             - "{{ hostvars['cp']['join_ca_hash'] }}"
       nodeRegistration:
         kubeletExtraArgs:
-          cloud-provider: external
-          provider-id: "aws:///{{ az.content }}/{{ instance_id.content }}"
-          node-ip: "{{ node_ip.stdout }}"
+        - name: provider-id
+          value: "aws:///{{ az.content }}/{{ instance_id.content }}"
+        - name: node-ip
+          value: "{{ node_ip.stdout }}"
   when: not kubelet_conf.stat.exists or node_status.rc != 0
 
 - name: Join worker node to cluster

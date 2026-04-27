@@ -1,6 +1,6 @@
 cluster_name: "k8s-lab-cluster"
 aws_region: "us-east-1"
-vpc_id: "vpc-0332a84632fc18a18"
+vpc_id: "vpc-0a2754513bfd2c54e"
 grafana_admin_password: "changeme123"
 monitoring_namespace: monitoring
 storage_class_name: ebs-sc

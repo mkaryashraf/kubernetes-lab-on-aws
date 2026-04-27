@@ -1,13 +1,12 @@
 ---
 - name: Update system packages
-  yum:
+  dnf:
     name: "*"
     state: latest
 
 - name: Install required utilities
-  yum:
+  dnf:
     name:
-      - curl
       - wget
       - git
       - tar
@@ -20,9 +19,6 @@
       - device-mapper-persistent-data
       - lvm2
       - jq
-      - yum-utils
-      - device-mapper-persistent-data
-      - lvm2
       - ca-certificates
       - gnupg2
     state: present
@@ -42,7 +38,7 @@
     replace: '# \1'
 
 - name: Install containerd
-  yum:
+  dnf:
     name: containerd
     state: present
 
@@ -102,11 +98,12 @@
     mode: '0644'
 
 # 4️⃣ Apply sysctl settings immediately
-- name: Reload sysctl
+- name: Apply sysctl settings
   command: sysctl --system
+  changed_when: false
 
-# 4️⃣ Add Kubernetes YUM repository
-- name: Add Kubernetes YUM repository
+# 4️⃣ Add Kubernetes dnf repository
+- name: Add Kubernetes dnf repository
   copy:
     dest: /etc/yum.repos.d/kubernetes.repo
     content: |
@@ -125,26 +122,30 @@
 
 # 5️⃣ Update all packages after repo is added
 - name: Update all system packages (after repo)
-  yum:
+  dnf:
     name: "*"
     state: latest
     update_cache: yes
 
 - name: Install Kubernetes packages
-  yum:
+  dnf:
     name:
       - kubelet-{{ kubernetes_version }}
       - kubeadm-{{ kubernetes_version }}
       - kubectl-{{ kubernetes_version }}
     state: present
 
-- name: Install yum versionlock plugin
-  yum:
-    name: yum-plugin-versionlock
+- name: Install dnf versionlock plugin
+  dnf:
+    name: python3-dnf-plugin-versionlock
     state: present
 
 - name: Lock Kubernetes packages
-  command: yum versionlock add kubelet kubeadm kubectl
+  command: dnf versionlock add kubelet kubeadm kubectl
+  args:
+    warn: false
+  register: lock_result
+  failed_when: false
 
 - name: Enable kubelet service
   systemd:
