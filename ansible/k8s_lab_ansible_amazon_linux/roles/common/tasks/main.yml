@@ -21,6 +21,7 @@
       - jq
       - ca-certificates
       - gnupg2
+      - nano
     state: present
 
 - name: Set hostname on all nodes

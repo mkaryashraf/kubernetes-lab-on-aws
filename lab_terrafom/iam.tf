@@ -359,3 +359,8 @@ resource "aws_iam_role_policy_attachment" "attach_aws_policy_for_ebs_sci_to_inst
   role       = aws_iam_role.aws_api_role.name
   policy_arn = aws_iam_policy.aws_ebs_csi_policy.arn
 }
+
+resource "aws_iam_role_policy_attachment" "attach_aws_policy_for_ebs_driver_to_instance_role" {
+  role       = aws_iam_role.aws_api_role.name
+  policy_arn = data.aws_iam_policy.ebs_csi.arn
+}

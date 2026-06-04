@@ -47,3 +47,7 @@ resource "aws_ec2_tag" "subnet_elb_tags" {
   key         = "kubernetes.io/role/elb"
   value       = "1"
 }
+
+data "aws_iam_policy" "ebs_csi" {
+  name = "AmazonEBSCSIDriverPolicy"
+}
