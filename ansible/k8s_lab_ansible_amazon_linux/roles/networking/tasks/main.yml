@@ -15,39 +15,70 @@
   command: helm repo update
   changed_when: false
 
+# Every controller below calls the EC2 API, so all of them must sit on the
+# control plane. That is what lets the workers run with no instance profile at
+# all. A nodeSelector alone is not enough: kubeadm taints the control plane
+# NoSchedule, so each pod needs the matching toleration as well.
+- name: Create control-plane pinning values
+  copy:
+    dest: /root/cp-pinned.yaml
+    content: |
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: ""
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+
+# Keys nest under controller: on purpose. The EBS CSI node DaemonSet must stay
+# on every node, or volume mounting on the workers breaks.
+- name: Create EBS CSI controller pinning values
+  copy:
+    dest: /root/cp-pinned-csi.yaml
+    content: |
+      controller:
+        nodeSelector:
+          node-role.kubernetes.io/control-plane: ""
+        tolerations:
+          - key: node-role.kubernetes.io/control-plane
+            operator: Exists
+            effect: NoSchedule
+
 - name: Install AWS Cloud Controller Manager
   command: >
     helm upgrade --install aws-cloud-controller-manager
     aws-cloud-controller-manager/aws-cloud-controller-manager
     --namespace kube-system
+    --values /root/cp-pinned.yaml
     --set args[0]="--v=2"
     --set args[1]="--cloud-provider=aws"
     --set args[2]="--cluster-name={{ cluster_name }}"
     --set args[3]="--configure-cloud-routes=false"
     --wait
-  changed_when: false
 
 - name: Install AWS Load Balancer Controller
   command: >
     helm upgrade --install aws-load-balancer-controller
     eks/aws-load-balancer-controller
     --namespace kube-system
+    --values /root/cp-pinned.yaml
     --set clusterName={{ cluster_name }}
     --set region={{ aws_region }}
     --set vpcId={{ vpc_id }}
+    --set replicaCount=1
     --set serviceAccount.create=true
     --set serviceAccount.name=aws-load-balancer-controller
     --wait
-  changed_when: false
 
 - name: Install EBS CSI Driver
   command: >
     helm upgrade --install aws-ebs-csi-driver
     aws-ebs-csi-driver/aws-ebs-csi-driver
     --namespace kube-system
+    --values /root/cp-pinned-csi.yaml
     --set controller.serviceAccount.create=true
     --set controller.serviceAccount.name=ebs-csi-controller-sa
-  changed_when: false
+    --wait
 
 - name: Create EBS StorageClass
   copy:
@@ -64,7 +95,10 @@
       parameters:
         type: gp3
         encrypted: "true"
-      reclaimPolicy: Retain
+      # Delete, not Retain. With Retain, terraform destroy takes the instances away
+      # and leaves the EBS volumes behind, still billing, with nothing referencing
+      # them: Prometheus 10Gi, Grafana 5Gi, Alertmanager 2Gi, every rebuild.
+      reclaimPolicy: Delete
 
 - name: Apply EBS StorageClass
   command: kubectl apply -f /tmp/ebs-storageclass.yaml

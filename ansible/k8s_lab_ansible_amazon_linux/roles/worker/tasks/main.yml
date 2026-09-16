@@ -10,11 +10,21 @@
   failed_when: false
   register: node_status
 
-- name: Reset kubeadm if kubelet.conf exists but node is not ready
+# One fact, computed once, used by every task below. The reset and the join used
+# to test different conditions, and a node that had joined but was NotReady
+# matched the reset condition and none of the join conditions: it was wiped,
+# never rejoined, and the playbook still reported success. Keep this as the only
+# condition in the role so the two halves cannot drift apart again.
+- name: Decide whether this node must join
+  set_fact:
+    needs_join: >-
+      {{ not kubelet_conf.stat.exists
+         or node_status.rc != 0
+         or 'NotReady' in node_status.stdout }}
+
+- name: Reset kubeadm if the node must rejoin
   command: kubeadm reset -f
-  when:
-    - kubelet_conf.stat.exists
-    - "'NotReady' in node_status.stdout or node_status.rc != 0"
+  when: needs_join | bool
 
 - name: Clean up kubernetes files after reset
   file:
@@ -23,10 +33,8 @@
   loop:
     - /etc/kubernetes
     - /var/lib/kubelet
-    - /root/.kube        # ← fixed from $HOME/.kube
-  when:
-    - kubelet_conf.stat.exists
-    - "'NotReady' in node_status.stdout or node_status.rc != 0"
+    - /root/.kube
+  when: needs_join | bool
 
 - name: Get IMDSv2 token
   uri:
@@ -51,7 +59,7 @@
     return_content: yes
     status_code: 200
   register: az
-  when: not kubelet_conf.stat.exists or node_status.rc != 0   # ← only when needed
+  when: needs_join | bool
 
 - name: Get EC2 instance ID
   uri:
@@ -61,7 +69,7 @@
     return_content: yes
     status_code: 200
   register: instance_id
-  when: not kubelet_conf.stat.exists or node_status.rc != 0   # ← only when needed
+  when: needs_join | bool
 
 
 - name: Get node primary IP
@@ -74,7 +82,7 @@
     path: /etc/kubernetes
     state: directory
     mode: '0755'
-  when: not kubelet_conf.stat.exists or node_status.rc != 0
+  when: needs_join | bool
 
 - name: Create kubeadm join config
   copy:
@@ -94,10 +102,15 @@
           value: "aws:///{{ az.content }}/{{ instance_id.content }}"
         - name: node-ip
           value: "{{ node_ip.stdout }}"
-  when: not kubelet_conf.stat.exists or node_status.rc != 0
+        # See the control-plane role for why this is here and not just
+        # provider-id. The node is NotReady until the cloud controller manager
+        # removes the uninitialized taint.
+        - name: cloud-provider
+          value: external
+  when: needs_join | bool
 
 - name: Join worker node to cluster
   command: kubeadm join --config /etc/kubernetes/join-config.yaml --ignore-preflight-errors=all
   args:
     creates: /etc/kubernetes/kubelet.conf   # ← extra safety, skip if already exists
-  when: not kubelet_conf.stat.exists or node_status.rc != 0
+  when: needs_join | bool

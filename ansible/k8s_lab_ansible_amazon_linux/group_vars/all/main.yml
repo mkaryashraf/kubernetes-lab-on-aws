@@ -1,0 +1,14 @@
+---
+# Static settings, formerly common.yml. This is a group_vars file now, so Ansible
+# loads it automatically for every host: site.yml needs no vars_files entry, and
+# the values are also correct under delegate_to, which matters for the worker
+# role's readiness check that runs against cp.
+#
+# vpc_id and aws_region are not here. Terraform writes them to terraform.yml in
+# this directory, and Ansible merges every file in group_vars/all/.
+cluster_name: "k8s-lab-cluster"
+grafana_admin_password: "changeme123"
+monitoring_namespace: monitoring
+storage_class_name: ebs-sc
+kubernetes_version: "1.36.0"
+kubernetes_minor_version: "1.36"

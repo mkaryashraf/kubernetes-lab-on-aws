@@ -143,8 +143,6 @@
 
 - name: Lock Kubernetes packages
   command: dnf versionlock add kubelet kubeadm kubectl
-  args:
-    warn: false
   register: lock_result
   failed_when: false
 

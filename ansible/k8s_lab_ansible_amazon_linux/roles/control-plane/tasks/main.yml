@@ -80,10 +80,22 @@
       kind: InitConfiguration
       nodeRegistration:
         kubeletExtraArgs:
-        - name: provider-id 
+        - name: provider-id
           value: "aws:///{{ az.content }}/{{ instance_id.content }}"
         - name: node-ip
           value: "{{ node_ip.stdout }}"
+        # provider-id alone is not enough. cloud-provider: external is what makes
+        # the kubelet register the node.cloudprovider.kubernetes.io/uninitialized
+        # taint, and that taint is what the AWS cloud controller manager looks for
+        # to decide which nodes are its responsibility. Without it the CCM starts,
+        # reports healthy, and never labels a node with its zone, region, or
+        # instance type.
+        #
+        # The node stays NotReady until the CCM removes the taint, so the
+        # networking role has to run in the same playbook run. site.yml already
+        # orders it that way.
+        - name: cloud-provider
+          value: external
 
 - name: Run kubeadm init
   command: kubeadm init --config /etc/kubernetes/kubeadm-config.yaml
