@@ -19,6 +19,10 @@
 # control plane. That is what lets the workers run with no instance profile at
 # all. A nodeSelector alone is not enough: kubeadm taints the control plane
 # NoSchedule, so each pod needs the matching toleration as well.
+#
+# This file is for the controllers that run after the node is initialized. The
+# cloud controller manager is the one that does the initializing and needs a
+# second toleration, so it gets its own file below.
 - name: Create control-plane pinning values
   copy:
     dest: /root/cp-pinned.yaml
@@ -28,6 +32,30 @@
       tolerations:
         - key: node-role.kubernetes.io/control-plane
           operator: Exists
+          effect: NoSchedule
+
+# The cloud controller manager needs one toleration the others must not have.
+# kubeadm registers every node with cloud-provider: external, which taints it
+# node.cloudprovider.kubernetes.io/uninitialized:NoSchedule, and the CCM is the
+# only thing that removes that taint. Handing the CCM the file above instead of
+# this one replaces the chart's default toleration list, which already contains
+# the uninitialized key, and drops it. The DaemonSet controller then matches zero
+# nodes, so DESIRED stays 0 and `helm --wait` reports success in seconds having
+# waited for nothing. The taint is never lifted and every later pod - the Load
+# Balancer Controller, coredns, calico-kube-controllers - sits Pending until helm
+# times out with "context deadline exceeded".
+- name: Create cloud controller manager pinning values
+  copy:
+    dest: /root/cp-pinned-ccm.yaml
+    content: |
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: ""
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+        - key: node.cloudprovider.kubernetes.io/uninitialized
+          value: "true"
           effect: NoSchedule
 
 # Keys nest under controller: on purpose. The EBS CSI node DaemonSet must stay
@@ -49,7 +77,7 @@
     helm upgrade --install aws-cloud-controller-manager
     aws-cloud-controller-manager/aws-cloud-controller-manager
     --namespace kube-system
-    --values /root/cp-pinned.yaml
+    --values /root/cp-pinned-ccm.yaml
     --set args[0]="--v=2"
     --set args[1]="--cloud-provider=aws"
     --set args[2]="--cluster-name={{ cluster_name }}"
